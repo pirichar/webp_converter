@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Build artifacts
+build/
+*.o
+*.a
+
+# App bundle and distribution
+*.app/
+*.dmg
+dmg_temp/
+
+# IDE
+.vscode/
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+compile_commands.json
+
+# Claude
+.claude/
+PLAN.md
