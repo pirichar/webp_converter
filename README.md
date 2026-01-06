@@ -49,13 +49,21 @@ A fast, native macOS application for converting images to WebP format. Built wit
 - Xcode Command Line Tools
 - [Homebrew](https://brew.sh)
 
-### Build
+### Quick Start (Interactive Build Script)
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/webp_converter.git
 cd webp_converter
+./build.sh
+```
 
+The build script will check dependencies, install them if needed, and guide you through the build process:
+
+![Build Script](assets/screenshot2.png)
+
+### Manual Build (Makefile)
+
+```bash
 # Install dependencies (raylib, webp)
 make install-deps
 
@@ -65,15 +73,15 @@ make run
 
 ### Build Targets
 
-| Command | Description |
-|---------|-------------|
-| `make` | Build the executable only |
-| `make app` | Build the macOS .app bundle |
-| `make run` | Build and launch the app |
-| `make dmg` | Create a distributable DMG |
-| `make clean` | Remove object files |
-| `make fclean` | Remove all build artifacts |
-| `make re` | Clean and rebuild |
+| Command             | Description                       |
+| ------------------- | --------------------------------- |
+| `make`              | Build the executable only         |
+| `make app`          | Build the macOS .app bundle       |
+| `make run`          | Build and launch the app          |
+| `make dmg`          | Create a distributable DMG        |
+| `make clean`        | Remove object files               |
+| `make fclean`       | Remove all build artifacts        |
+| `make re`           | Clean and rebuild                 |
 | `make install-deps` | Install dependencies via Homebrew |
 
 ### Development Workflow
