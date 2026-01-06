@@ -220,17 +220,18 @@ size_t converter_estimate_size(const ImageData *image, const ConversionParams *p
     size_t raw_size = (size_t)image->width * image->height * 4;
 
     if (params->lossless) {
-        /* Lossless typically achieves 40-70% of raw size */
-        /* Higher method = better compression */
-        float method_factor = 0.7f - (params->method / 6.0f) * 0.3f;
+        /* Lossless typically achieves 15-40% of raw size */
+        float method_factor = 0.4f - (params->method / 6.0f) * 0.2f;
         return (size_t)(raw_size * method_factor);
     }
 
-    /* Lossy estimation based on quality and method */
-    /* Quality 100 ~ 8-12% of raw, quality 0 ~ 1-2% of raw */
-    /* Higher method = slightly smaller files */
-    float quality_ratio = 0.01f + (params->quality / 100.0f) * 0.10f;
-    float method_factor = 1.0f - (params->method / 6.0f) * 0.2f;
+    /* Lossy estimation - calibrated from real tests */
+    /* Quality 0: ~0.1% of raw, Quality 50: ~0.6%, Quality 100: ~2.5% */
+    float qf = params->quality / 100.0f;
+    float base_ratio = 0.001f + qf * qf * 0.025f;
 
-    return (size_t)(raw_size * quality_ratio * method_factor);
+    /* Higher method = slightly smaller files */
+    float method_factor = 1.0f - (params->method / 6.0f) * 0.1f;
+
+    return (size_t)(raw_size * base_ratio * method_factor);
 }

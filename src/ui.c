@@ -620,14 +620,44 @@ static void draw_sidebar(UIContext *ctx) {
     ctx->params.method = (int)method_f;
     y += 35;
 
-    /* Lossless toggle */
-    bool lossless = ctx->params.lossless;
-    GuiCheckBox((Rectangle){ x, y, 20, 20 }, "Lossless compression", &lossless);
-    ctx->params.lossless = lossless;
+    /* Lossless toggle - custom checkbox */
+    {
+        Rectangle cb = { x, y, 20, 20 };
+        bool checked = ctx->params.lossless;
+        DrawRectangleRec(cb, checked ? COLOR_SUCCESS : CLITERAL(Color){ 60, 60, 65, 255 });
+        DrawRectangleLinesEx(cb, 1, checked ? COLOR_SUCCESS : COLOR_TEXT_DIM);
+        if (checked) {
+            DrawLine(x + 4, y + 10, x + 8, y + 15, WHITE);
+            DrawLine(x + 8, y + 15, x + 16, y + 5, WHITE);
+            DrawLine(x + 4, y + 11, x + 8, y + 16, WHITE);
+            DrawLine(x + 8, y + 16, x + 16, y + 6, WHITE);
+        }
+        DrawText("Lossless compression", x + 28, y + 3, 14, COLOR_TEXT);
+        if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){ x, y, 200, 20 }) &&
+            IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            ctx->params.lossless = !ctx->params.lossless;
+        }
+    }
     y += 35;
 
-    /* Advanced toggle */
-    GuiCheckBox((Rectangle){ x, y, 20, 20 }, "Show advanced options", &ctx->show_advanced);
+    /* Advanced toggle - custom checkbox */
+    {
+        Rectangle cb = { x, y, 20, 20 };
+        bool checked = ctx->show_advanced;
+        DrawRectangleRec(cb, checked ? COLOR_SUCCESS : CLITERAL(Color){ 60, 60, 65, 255 });
+        DrawRectangleLinesEx(cb, 1, checked ? COLOR_SUCCESS : COLOR_TEXT_DIM);
+        if (checked) {
+            DrawLine(x + 4, y + 10, x + 8, y + 15, WHITE);
+            DrawLine(x + 8, y + 15, x + 16, y + 5, WHITE);
+            DrawLine(x + 4, y + 11, x + 8, y + 16, WHITE);
+            DrawLine(x + 8, y + 16, x + 16, y + 6, WHITE);
+        }
+        DrawText("Show advanced options", x + 28, y + 3, 14, COLOR_TEXT);
+        if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){ x, y, 200, 20 }) &&
+            IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            ctx->show_advanced = !ctx->show_advanced;
+        }
+    }
     y += 30;
 
     if (ctx->show_advanced) {
@@ -660,10 +690,12 @@ static void draw_sidebar(UIContext *ctx) {
             if (ctx->has_preview && i == ctx->current_file) {
                 total_estimate += converter_estimate_size(&ctx->image, &ctx->params);
             } else {
-                /* Rough estimate: assume similar compression ratio */
-                float ratio = 0.1f + (ctx->params.quality / 100.0f) * 0.15f;
-                if (ctx->params.lossless) ratio = 0.5f;
-                total_estimate += (size_t)(ctx->files[i].file_size * ratio);
+                /* Rough estimate based on file size */
+                /* Assume raw pixels ~3x compressed file size, then apply WebP ratio */
+                size_t approx_raw = ctx->files[i].file_size * 3;
+                float qf = ctx->params.quality / 100.0f;
+                float ratio = ctx->params.lossless ? 0.3f : (0.001f + qf * qf * 0.025f);
+                total_estimate += (size_t)(approx_raw * ratio);
             }
         }
 
