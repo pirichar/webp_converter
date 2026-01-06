@@ -15,37 +15,45 @@
 /* Colors */
 #define COLOR_BACKGROUND    CLITERAL(Color){ 30, 30, 35, 255 }
 #define COLOR_PANEL         CLITERAL(Color){ 45, 45, 50, 255 }
+#define COLOR_PANEL_DARK    CLITERAL(Color){ 35, 35, 40, 255 }
 #define COLOR_ACCENT        CLITERAL(Color){ 100, 149, 237, 255 }
 #define COLOR_SUCCESS       CLITERAL(Color){ 50, 205, 50, 255 }
 #define COLOR_ERROR         CLITERAL(Color){ 220, 20, 60, 255 }
 #define COLOR_TEXT          CLITERAL(Color){ 220, 220, 220, 255 }
 #define COLOR_TEXT_DIM      CLITERAL(Color){ 150, 150, 150, 255 }
+#define COLOR_SELECTED      CLITERAL(Color){ 70, 130, 180, 255 }
 
 /* Layout constants */
 #define PANEL_PADDING 20
 #define CONTROL_HEIGHT 30
 #define CONTROL_SPACING 10
+#define FILE_LIST_ITEM_HEIGHT 25
 
 /* Forward declarations */
 static void draw_sidebar(UIContext *ctx);
 static void draw_preview_panel(UIContext *ctx);
+static void draw_file_list(UIContext *ctx);
 static void draw_status_bar(UIContext *ctx);
+static void draw_popup(UIContext *ctx);
 static void open_file_dialog(UIContext *ctx);
-static void generate_output_path(UIContext *ctx);
+static void generate_output_paths(UIContext *ctx);
 static const char* format_size(size_t bytes);
+static const char* get_filename(const char *path);
 
 void ui_init(UIContext *ctx) {
     memset(ctx, 0, sizeof(UIContext));
 
-    ctx->window_width = 1000;
-    ctx->window_height = 700;
+    ctx->window_width = 1100;
+    ctx->window_height = 750;
     ctx->state = STATE_IDLE;
     ctx->selected_preset = PRESET_MEDIUM;
     ctx->preview_scale = 1.0f;
     ctx->waiting_for_drop = true;
+    ctx->use_same_dir = true;
+    ctx->current_file = -1;
 
     presets_apply(PRESET_MEDIUM, &ctx->params);
-    strcpy(ctx->status_message, "Drop an image or click 'Open File' to start");
+    strcpy(ctx->status_message, "Drop images or click 'Add Files' to start");
 
     /* Configure raygui style */
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
@@ -62,43 +70,139 @@ void ui_cleanup(UIContext *ctx) {
     converter_free_image(&ctx->image);
 }
 
-static void open_file_dialog(UIContext *ctx) {
-    const char *filters[] = { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif" };
-    const char *filepath = tinyfd_openFileDialog(
-        "Select Image",
-        "",
-        5,
-        filters,
-        "Image files",
-        0
-    );
-
-    if (filepath) {
-        ui_load_image(ctx, filepath);
-    }
-}
-
-bool ui_load_image(UIContext *ctx, const char *filepath) {
-    /* Free previous image */
+void ui_clear_files(UIContext *ctx) {
     if (ctx->has_preview) {
         UnloadTexture(ctx->preview_texture);
         ctx->has_preview = false;
     }
     converter_free_image(&ctx->image);
 
-    /* Check if file is supported */
-    if (!converter_is_supported(filepath)) {
-        ctx->state = STATE_ERROR;
-        snprintf(ctx->status_message, sizeof(ctx->status_message),
-                "Unsupported file format");
-        return false;
+    ctx->file_count = 0;
+    ctx->current_file = -1;
+    ctx->converted_count = 0;
+    ctx->failed_count = 0;
+    ctx->total_saved_bytes = 0;
+    ctx->state = STATE_IDLE;
+    strcpy(ctx->status_message, "Drop images or click 'Add Files' to start");
+}
+
+static void open_file_dialog(UIContext *ctx) {
+    const char *filters[] = { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif" };
+    const char *result = tinyfd_openFileDialog(
+        "Select Images",
+        "",
+        5,
+        filters,
+        "Image files",
+        1  /* Allow multiple selection */
+    );
+
+    if (result) {
+        /* tinyfiledialogs returns paths separated by | for multiple files */
+        char *paths = strdup(result);
+        char *token = strtok(paths, "|");
+        const char *file_list[MAX_FILES];
+        int count = 0;
+
+        while (token && count < MAX_FILES) {
+            file_list[count++] = token;
+            token = strtok(NULL, "|");
+        }
+
+        ui_add_files(ctx, file_list, count);
+        free(paths);
+    }
+}
+
+void ui_add_files(UIContext *ctx, const char **filepaths, int count) {
+    for (int i = 0; i < count && ctx->file_count < MAX_FILES; i++) {
+        const char *path = filepaths[i];
+
+        /* Check if file is supported */
+        if (!converter_is_supported(path)) continue;
+
+        /* Check if already in list */
+        bool duplicate = false;
+        for (int j = 0; j < ctx->file_count; j++) {
+            if (strcmp(ctx->files[j].input_path, path) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) continue;
+
+        /* Add to list */
+        FileEntry *entry = &ctx->files[ctx->file_count];
+        strncpy(entry->input_path, path, sizeof(entry->input_path) - 1);
+        strncpy(entry->filename, get_filename(path), sizeof(entry->filename) - 1);
+
+        /* Get file size */
+        ImageData temp;
+        if (converter_load_image(path, &temp)) {
+            entry->file_size = temp.file_size;
+            converter_free_image(&temp);
+        }
+
+        entry->converted = false;
+        entry->failed = false;
+
+        ctx->file_count++;
     }
 
-    /* Load the image */
-    if (!converter_load_image(filepath, &ctx->image)) {
-        ctx->state = STATE_ERROR;
+    /* Generate output paths */
+    generate_output_paths(ctx);
+
+    /* Load preview of first file if none selected */
+    if (ctx->file_count > 0 && ctx->current_file < 0) {
+        ui_load_preview(ctx, 0);
+    }
+
+    if (ctx->file_count > 0) {
+        ctx->state = STATE_LOADED;
         snprintf(ctx->status_message, sizeof(ctx->status_message),
-                "Failed to load image");
+                "%d file%s ready to convert",
+                ctx->file_count, ctx->file_count > 1 ? "s" : "");
+    }
+}
+
+static void generate_output_paths(UIContext *ctx) {
+    for (int i = 0; i < ctx->file_count; i++) {
+        FileEntry *entry = &ctx->files[i];
+        char temp[512];
+
+        if (ctx->use_same_dir) {
+            strncpy(temp, entry->input_path, sizeof(temp) - 1);
+        } else {
+            snprintf(temp, sizeof(temp), "%s/%s",
+                    ctx->output_dir, entry->filename);
+        }
+
+        /* Replace extension with .webp */
+        char *dot = strrchr(temp, '.');
+        if (dot) {
+            strcpy(dot, ".webp");
+        } else {
+            strcat(temp, ".webp");
+        }
+
+        strncpy(entry->output_path, temp, sizeof(entry->output_path) - 1);
+    }
+}
+
+bool ui_load_preview(UIContext *ctx, int file_index) {
+    if (file_index < 0 || file_index >= ctx->file_count) return false;
+
+    /* Free previous preview */
+    if (ctx->has_preview) {
+        UnloadTexture(ctx->preview_texture);
+        ctx->has_preview = false;
+    }
+    converter_free_image(&ctx->image);
+
+    FileEntry *entry = &ctx->files[file_index];
+
+    /* Load the image */
+    if (!converter_load_image(entry->input_path, &ctx->image)) {
         return false;
     }
 
@@ -112,84 +216,86 @@ bool ui_load_image(UIContext *ctx, const char *filepath) {
     };
     ctx->preview_texture = LoadTextureFromImage(raylib_img);
     ctx->has_preview = true;
+    ctx->current_file = file_index;
 
     /* Reset preview transform */
     ctx->preview_scale = 1.0f;
     ctx->preview_offset = (Vector2){ 0, 0 };
 
-    /* Generate output path */
-    generate_output_path(ctx);
-
-    /* Update state */
-    ctx->state = STATE_LOADED;
-    ctx->waiting_for_drop = false;
-    snprintf(ctx->status_message, sizeof(ctx->status_message),
-            "Loaded: %dx%d - %s",
-            ctx->image.width, ctx->image.height,
-            format_size(ctx->image.file_size));
-
     return true;
 }
 
-static void generate_output_path(UIContext *ctx) {
-    /* Generate output path: same directory, same name, .webp extension */
-    char temp[512];
-    strncpy(temp, ctx->image.filepath, sizeof(temp) - 1);
-
-    /* Find last dot */
-    char *dot = strrchr(temp, '.');
-    if (dot) {
-        strcpy(dot, ".webp");
-    } else {
-        strcat(temp, ".webp");
-    }
-
-    strncpy(ctx->output_path, temp, sizeof(ctx->output_path) - 1);
-}
-
 void ui_start_conversion(UIContext *ctx) {
-    if (ctx->state != STATE_LOADED) return;
+    if (ctx->file_count == 0) return;
 
     ctx->state = STATE_CONVERTING;
-    strcpy(ctx->status_message, "Converting...");
+    ctx->converted_count = 0;
+    ctx->failed_count = 0;
+    ctx->total_saved_bytes = 0;
 
-    /* Perform conversion */
-    ctx->last_result = converter_to_webp(&ctx->image, ctx->output_path, &ctx->params);
+    for (int i = 0; i < ctx->file_count; i++) {
+        FileEntry *entry = &ctx->files[i];
 
-    if (ctx->last_result.success) {
-        ctx->state = STATE_SUCCESS;
         snprintf(ctx->status_message, sizeof(ctx->status_message),
-                "Saved! %s -> %s (%.1fx compression)",
-                format_size(ctx->image.file_size),
-                format_size(ctx->last_result.output_size),
-                ctx->last_result.compression_ratio);
-    } else {
-        ctx->state = STATE_ERROR;
-        snprintf(ctx->status_message, sizeof(ctx->status_message),
-                "Error: %s", ctx->last_result.error_message);
+                "Converting %d/%d: %s",
+                i + 1, ctx->file_count, entry->filename);
+
+        /* Load image */
+        ImageData img;
+        if (!converter_load_image(entry->input_path, &img)) {
+            entry->failed = true;
+            ctx->failed_count++;
+            continue;
+        }
+
+        /* Convert */
+        ConversionResult result = converter_to_webp(&img, entry->output_path, &ctx->params);
+        converter_free_image(&img);
+
+        if (result.success) {
+            entry->converted = true;
+            ctx->converted_count++;
+            ctx->total_saved_bytes += entry->file_size - result.output_size;
+        } else {
+            entry->failed = true;
+            ctx->failed_count++;
+        }
     }
+
+    /* Show completion popup */
+    ctx->state = STATE_SUCCESS;
+    ctx->show_popup = true;
+
+    snprintf(ctx->status_message, sizeof(ctx->status_message),
+            "Done! %d converted, %d failed",
+            ctx->converted_count, ctx->failed_count);
 }
 
-void ui_handle_drop(UIContext *ctx, const char *filepath) {
-    ui_load_image(ctx, filepath);
+void ui_handle_drop(UIContext *ctx, const char **filepaths, int count) {
+    ui_add_files(ctx, filepaths, count);
 }
 
 void ui_update(UIContext *ctx) {
     /* Handle file drop */
     if (IsFileDropped()) {
         FilePathList dropped = LoadDroppedFiles();
-        if (dropped.count > 0) {
-            ui_handle_drop(ctx, dropped.paths[0]);
-        }
+        const char **paths = (const char **)dropped.paths;
+        ui_handle_drop(ctx, paths, dropped.count);
         UnloadDroppedFiles(dropped);
     }
 
-    /* Handle mouse wheel for zoom */
+    /* Handle mouse wheel for zoom (only when not over file list) */
     float wheel = GetMouseWheelMove();
     if (wheel != 0 && ctx->has_preview) {
-        ctx->preview_scale += wheel * 0.1f;
-        if (ctx->preview_scale < 0.1f) ctx->preview_scale = 0.1f;
-        if (ctx->preview_scale > 5.0f) ctx->preview_scale = 5.0f;
+        Vector2 mouse = GetMousePosition();
+        int sidebar_width = 320;
+        int file_list_height = 150;
+        if (mouse.x < ctx->window_width - sidebar_width &&
+            mouse.y > file_list_height) {
+            ctx->preview_scale += wheel * 0.1f;
+            if (ctx->preview_scale < 0.1f) ctx->preview_scale = 0.1f;
+            if (ctx->preview_scale > 5.0f) ctx->preview_scale = 5.0f;
+        }
     }
 
     /* Begin drawing */
@@ -197,20 +303,95 @@ void ui_update(UIContext *ctx) {
     ClearBackground(COLOR_BACKGROUND);
 
     /* Draw panels */
+    draw_file_list(ctx);
     draw_preview_panel(ctx);
     draw_sidebar(ctx);
     draw_status_bar(ctx);
 
+    /* Draw popup if active */
+    if (ctx->show_popup) {
+        draw_popup(ctx);
+    }
+
     EndDrawing();
 }
 
-static void draw_preview_panel(UIContext *ctx) {
-    int sidebar_width = 300;
-    int status_height = 40;
+static void draw_file_list(UIContext *ctx) {
+    int sidebar_width = 320;
+    int file_list_height = 150;
     Rectangle panel = {
         0, 0,
         ctx->window_width - sidebar_width,
-        ctx->window_height - status_height
+        file_list_height
+    };
+
+    DrawRectangleRec(panel, COLOR_PANEL_DARK);
+    DrawRectangleLinesEx(panel, 1, COLOR_BACKGROUND);
+
+    /* Title */
+    DrawText("FILES", 10, 8, 12, COLOR_TEXT_DIM);
+
+    /* File count */
+    char count_text[32];
+    snprintf(count_text, sizeof(count_text), "%d file%s",
+            ctx->file_count, ctx->file_count != 1 ? "s" : "");
+    DrawText(count_text, panel.width - 80, 8, 12, COLOR_TEXT_DIM);
+
+    /* File list */
+    int y = 30;
+    int visible_items = (file_list_height - 35) / FILE_LIST_ITEM_HEIGHT;
+
+    for (int i = ctx->scroll_offset; i < ctx->file_count && i < ctx->scroll_offset + visible_items; i++) {
+        FileEntry *entry = &ctx->files[i];
+        Rectangle item_rect = { 5, y, panel.width - 10, FILE_LIST_ITEM_HEIGHT - 2 };
+
+        /* Highlight selected */
+        if (i == ctx->current_file) {
+            DrawRectangleRec(item_rect, COLOR_SELECTED);
+        }
+
+        /* Click to select */
+        if (CheckCollisionPointRec(GetMousePosition(), item_rect) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            ui_load_preview(ctx, i);
+        }
+
+        /* Status indicator */
+        Color status_color = COLOR_TEXT_DIM;
+        if (entry->converted) status_color = COLOR_SUCCESS;
+        else if (entry->failed) status_color = COLOR_ERROR;
+        DrawCircle(15, y + FILE_LIST_ITEM_HEIGHT/2, 4, status_color);
+
+        /* Filename */
+        DrawText(entry->filename, 28, y + 4, 14, COLOR_TEXT);
+
+        /* Size */
+        DrawText(format_size(entry->file_size), panel.width - 80, y + 4, 12, COLOR_TEXT_DIM);
+
+        y += FILE_LIST_ITEM_HEIGHT;
+    }
+
+    /* Scroll with mouse wheel when over file list */
+    Vector2 mouse = GetMousePosition();
+    if (CheckCollisionPointRec(mouse, panel)) {
+        float wheel = GetMouseWheelMove();
+        if (wheel != 0) {
+            ctx->scroll_offset -= (int)wheel;
+            if (ctx->scroll_offset < 0) ctx->scroll_offset = 0;
+            if (ctx->scroll_offset > ctx->file_count - visible_items)
+                ctx->scroll_offset = ctx->file_count - visible_items;
+            if (ctx->scroll_offset < 0) ctx->scroll_offset = 0;
+        }
+    }
+}
+
+static void draw_preview_panel(UIContext *ctx) {
+    int sidebar_width = 320;
+    int file_list_height = 150;
+    int status_height = 40;
+    Rectangle panel = {
+        0, file_list_height,
+        ctx->window_width - sidebar_width,
+        ctx->window_height - file_list_height - status_height
     };
 
     DrawRectangleRec(panel, COLOR_PANEL);
@@ -254,7 +435,7 @@ static void draw_preview_panel(UIContext *ctx) {
         DrawText(dims, panel.x + 10, panel.y + panel.height - 25, 14, COLOR_TEXT_DIM);
     } else {
         /* Drop zone */
-        const char *drop_text = "Drop image here";
+        const char *drop_text = "Drop images here";
         int text_width = MeasureText(drop_text, 24);
         DrawText(drop_text,
                 panel.x + (panel.width - text_width) / 2,
@@ -271,7 +452,7 @@ static void draw_preview_panel(UIContext *ctx) {
 }
 
 static void draw_sidebar(UIContext *ctx) {
-    int sidebar_width = 300;
+    int sidebar_width = 320;
     int status_height = 40;
     Rectangle sidebar = {
         ctx->window_width - sidebar_width, 0,
@@ -285,11 +466,79 @@ static void draw_sidebar(UIContext *ctx) {
     int y = PANEL_PADDING;
     int w = sidebar_width - PANEL_PADDING * 2;
 
-    /* Open File button */
-    if (GuiButton((Rectangle){ x, y, w, 40 }, "Open File...")) {
+    /* Add Files / Clear buttons */
+    if (GuiButton((Rectangle){ x, y, w/2 - 5, 35 }, "Add Files...")) {
         open_file_dialog(ctx);
     }
-    y += 50;
+    if (GuiButton((Rectangle){ x + w/2 + 5, y, w/2 - 5, 35 }, "Clear All")) {
+        ui_clear_files(ctx);
+    }
+    y += 45;
+
+    /* Output path info */
+    DrawText("OUTPUT FOLDER", x, y, 12, COLOR_TEXT_DIM);
+    y += 20;
+
+    /* Toggle: same folder or custom - draw custom checkbox */
+    Rectangle checkbox_rect = { x, y, 20, 20 };
+    bool same_dir = ctx->use_same_dir;
+
+    /* Draw checkbox background */
+    DrawRectangleRec(checkbox_rect, same_dir ? COLOR_SUCCESS : CLITERAL(Color){ 60, 60, 65, 255 });
+    DrawRectangleLinesEx(checkbox_rect, 1, same_dir ? COLOR_SUCCESS : COLOR_TEXT_DIM);
+
+    /* Draw checkmark if checked */
+    if (same_dir) {
+        DrawLine(x + 4, y + 10, x + 8, y + 15, WHITE);
+        DrawLine(x + 8, y + 15, x + 16, y + 5, WHITE);
+        DrawLine(x + 4, y + 11, x + 8, y + 16, WHITE);
+        DrawLine(x + 8, y + 16, x + 16, y + 6, WHITE);
+    }
+
+    /* Label */
+    DrawText("Same folder as source", x + 28, y + 3, 14, COLOR_TEXT);
+
+    /* Click detection */
+    if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){ x, y, 200, 20 }) &&
+        IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        ctx->use_same_dir = !ctx->use_same_dir;
+    }
+    y += 28;
+
+    /* Show current output folder or change button */
+    if (!ctx->use_same_dir) {
+        if (GuiButton((Rectangle){ x, y, w, 28 }, ctx->output_dir[0] ? "Change Folder..." : "Select Folder...")) {
+            const char *folder = tinyfd_selectFolderDialog("Select Output Folder", "");
+            if (folder) {
+                strncpy(ctx->output_dir, folder, sizeof(ctx->output_dir) - 1);
+                generate_output_paths(ctx);
+            }
+        }
+        y += 32;
+
+        /* Show selected folder */
+        if (ctx->output_dir[0]) {
+            char display_dir[48];
+            if (strlen(ctx->output_dir) > 35) {
+                snprintf(display_dir, sizeof(display_dir), "...%s",
+                        ctx->output_dir + strlen(ctx->output_dir) - 32);
+            } else {
+                strncpy(display_dir, ctx->output_dir, sizeof(display_dir) - 1);
+            }
+            DrawText(display_dir, x, y, 11, COLOR_TEXT_DIM);
+            y += 18;
+        }
+    } else {
+        /* Regenerate paths if switched back to same dir */
+        if (ctx->file_count > 0) {
+            generate_output_paths(ctx);
+        }
+        y += 5;
+    }
+
+    /* Divider */
+    DrawLine(x, y, x + w, y, COLOR_BACKGROUND);
+    y += 15;
 
     /* Presets section */
     DrawText("PRESETS", x, y, 12, COLOR_TEXT_DIM);
@@ -305,15 +554,13 @@ static void draw_sidebar(UIContext *ctx) {
 
         if (selected) {
             GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(COLOR_ACCENT));
+        } else {
+            GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
         }
 
         if (GuiButton((Rectangle){ bx, by, btn_w, 30 }, preset_names[i])) {
             ctx->selected_preset = i;
             presets_apply(i, &ctx->params);
-        }
-
-        if (selected) {
-            GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
         }
     }
     y += 80;
@@ -327,15 +574,13 @@ static void draw_sidebar(UIContext *ctx) {
 
         if (selected) {
             GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(COLOR_ACCENT));
+        } else {
+            GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
         }
 
         if (GuiButton((Rectangle){ bx, y, bw, 30 }, use_case_names[i])) {
             ctx->selected_preset = PRESET_WEB + i;
             presets_apply(PRESET_WEB + i, &ctx->params);
-        }
-
-        if (selected) {
-            GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
         }
     }
     y += 50;
@@ -347,6 +592,8 @@ static void draw_sidebar(UIContext *ctx) {
     /* Settings section */
     DrawText("SETTINGS", x, y, 12, COLOR_TEXT_DIM);
     y += 25;
+
+    GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
 
     /* Quality slider */
     DrawText("Quality", x, y, 14, COLOR_TEXT);
@@ -397,24 +644,84 @@ static void draw_sidebar(UIContext *ctx) {
     /* Spacer to push convert button to bottom */
     y = ctx->window_height - status_height - 70;
 
-    /* Estimated size */
-    if (ctx->has_preview) {
-        size_t est = converter_estimate_size(&ctx->image, &ctx->params);
-        char est_text[128];
-        snprintf(est_text, sizeof(est_text), "Est. size: ~%s", format_size(est));
-        DrawText(est_text, x, y, 14, COLOR_TEXT_DIM);
+    /* File count and estimated savings */
+    if (ctx->file_count > 0) {
+        char info_text[128];
+        snprintf(info_text, sizeof(info_text), "%d file%s selected",
+                ctx->file_count, ctx->file_count > 1 ? "s" : "");
+        DrawText(info_text, x, y, 14, COLOR_TEXT_DIM);
     }
     y += 25;
 
     /* Convert button */
-    bool can_convert = (ctx->state == STATE_LOADED || ctx->state == STATE_SUCCESS);
-    GuiSetStyle(BUTTON, BASE_COLOR_NORMAL,
-        can_convert ? ColorToInt(COLOR_SUCCESS) : ColorToInt(CLITERAL(Color){ 60, 60, 65, 255 }));
+    bool can_convert = (ctx->file_count > 0 && ctx->state != STATE_CONVERTING);
+    if (can_convert) {
+        GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(COLOR_SUCCESS));
+    } else {
+        GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 60, 60, 65, 255 }));
+    }
 
-    if (GuiButton((Rectangle){ x, y, w, 40 }, "Convert to WebP") && can_convert) {
+    char convert_text[64];
+    if (ctx->file_count > 1) {
+        snprintf(convert_text, sizeof(convert_text), "Convert %d Files to WebP", ctx->file_count);
+    } else {
+        strcpy(convert_text, "Convert to WebP");
+    }
+
+    if (GuiButton((Rectangle){ x, y, w, 40 }, convert_text) && can_convert) {
         ui_start_conversion(ctx);
     }
 
+    GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
+}
+
+static void draw_popup(UIContext *ctx) {
+    /* Dim background */
+    DrawRectangle(0, 0, ctx->window_width, ctx->window_height, CLITERAL(Color){ 0, 0, 0, 150 });
+
+    /* Popup box */
+    int popup_w = 400;
+    int popup_h = 200;
+    int popup_x = (ctx->window_width - popup_w) / 2;
+    int popup_y = (ctx->window_height - popup_h) / 2;
+
+    DrawRectangle(popup_x, popup_y, popup_w, popup_h, COLOR_PANEL);
+    DrawRectangleLinesEx((Rectangle){ popup_x, popup_y, popup_w, popup_h }, 2, COLOR_ACCENT);
+
+    /* Title */
+    const char *title = "Conversion Complete!";
+    int title_w = MeasureText(title, 24);
+    DrawText(title, popup_x + (popup_w - title_w) / 2, popup_y + 25, 24, COLOR_SUCCESS);
+
+    /* Results */
+    char results[128];
+    snprintf(results, sizeof(results), "%d of %d files converted successfully",
+            ctx->converted_count, ctx->file_count);
+    int results_w = MeasureText(results, 16);
+    DrawText(results, popup_x + (popup_w - results_w) / 2, popup_y + 70, 16, COLOR_TEXT);
+
+    /* Savings */
+    if (ctx->total_saved_bytes > 0) {
+        char savings[128];
+        snprintf(savings, sizeof(savings), "Total space saved: %s", format_size(ctx->total_saved_bytes));
+        int savings_w = MeasureText(savings, 14);
+        DrawText(savings, popup_x + (popup_w - savings_w) / 2, popup_y + 100, 14, COLOR_TEXT_DIM);
+    }
+
+    /* Failed count */
+    if (ctx->failed_count > 0) {
+        char failed[64];
+        snprintf(failed, sizeof(failed), "%d file%s failed",
+                ctx->failed_count, ctx->failed_count > 1 ? "s" : "");
+        int failed_w = MeasureText(failed, 14);
+        DrawText(failed, popup_x + (popup_w - failed_w) / 2, popup_y + 120, 14, COLOR_ERROR);
+    }
+
+    /* OK button */
+    GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(COLOR_ACCENT));
+    if (GuiButton((Rectangle){ popup_x + popup_w/2 - 60, popup_y + popup_h - 50, 120, 35 }, "OK")) {
+        ctx->show_popup = false;
+    }
     GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
 }
 
@@ -428,7 +735,7 @@ static void draw_status_bar(UIContext *ctx) {
     Color bar_color = COLOR_PANEL;
     Color text_color = COLOR_TEXT;
 
-    if (ctx->state == STATE_SUCCESS) {
+    if (ctx->state == STATE_SUCCESS && !ctx->show_popup) {
         bar_color = CLITERAL(Color){ 30, 60, 30, 255 };
         text_color = COLOR_SUCCESS;
     } else if (ctx->state == STATE_ERROR) {
@@ -453,3 +760,10 @@ static const char* format_size(size_t bytes) {
 
     return buffer;
 }
+
+static const char* get_filename(const char *path) {
+    const char *slash = strrchr(path, '/');
+    if (slash) return slash + 1;
+    return path;
+}
+

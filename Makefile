@@ -2,7 +2,7 @@
 # Build system for creating distributable .app bundle
 
 CC = clang
-CFLAGS = -std=c11 -Wall -Wextra -O2 $(shell pkg-config --cflags raylib) -I/opt/homebrew/opt/webp/include
+CFLAGS = -std=c11 -Wall -Wextra -Wno-unused-parameter -O2 $(shell pkg-config --cflags raylib) -I/opt/homebrew/opt/webp/include
 LDFLAGS = $(shell pkg-config --libs raylib) -L/opt/homebrew/opt/webp/lib -lwebp -framework Cocoa -framework IOKit -framework CoreVideo
 
 # Directories
@@ -26,7 +26,7 @@ EXECUTABLE = $(BUILD_DIR)/webp_converter
 RAYLIB_DYLIB = $(shell pkg-config --variable=libdir raylib)/libraylib.dylib
 WEBP_DYLIB = /opt/homebrew/opt/webp/lib/libwebp.dylib
 
-.PHONY: all clean app dmg run install-deps
+.PHONY: all clean fclean re app dmg run install-deps
 
 all: $(EXECUTABLE)
 
@@ -130,7 +130,12 @@ notarize: dmg
 	@echo "Notarized!"
 
 clean:
+	rm -rf $(BUILD_DIR)/*.o
+
+fclean: clean
 	rm -rf $(BUILD_DIR) $(APP_BUNDLE) $(APP_NAME).dmg dmg_temp
+
+re: fclean all
 
 install-deps:
 	brew install raylib webp

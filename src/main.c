@@ -12,9 +12,9 @@
 int main(void) {
     /* Initialize window */
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
-    InitWindow(1000, 700, "WebP Converter");
+    InitWindow(1100, 750, "WebP Converter");
     SetTargetFPS(60);
-    SetWindowMinSize(800, 500);
+    SetWindowMinSize(900, 600);
 
     /* Initialize UI */
     UIContext ctx;

@@ -10,6 +10,8 @@
 #include "presets.h"
 #include <raylib.h>
 
+#define MAX_FILES 100
+
 /* Application state */
 typedef enum {
     STATE_IDLE,         /* No image loaded */
@@ -18,6 +20,16 @@ typedef enum {
     STATE_SUCCESS,      /* Conversion completed */
     STATE_ERROR         /* Error occurred */
 } AppState;
+
+/* File entry for batch processing */
+typedef struct {
+    char input_path[512];
+    char output_path[512];
+    char filename[256];
+    size_t file_size;
+    bool converted;
+    bool failed;
+} FileEntry;
 
 /* UI context */
 typedef struct {
@@ -29,7 +41,12 @@ typedef struct {
     AppState state;
     char status_message[256];
 
-    /* Image */
+    /* Multiple files */
+    FileEntry files[MAX_FILES];
+    int file_count;
+    int current_file;       /* Currently previewed file */
+
+    /* Preview */
     ImageData image;
     Texture2D preview_texture;
     bool has_preview;
@@ -38,15 +55,23 @@ typedef struct {
     ConversionParams params;
     int selected_preset;
 
-    /* Output */
-    char output_path[512];
+    /* Output directory */
+    char output_dir[512];
+    bool use_same_dir;      /* Save in same directory as source */
+
+    /* Results */
     ConversionResult last_result;
+    int converted_count;
+    int failed_count;
+    size_t total_saved_bytes;
 
     /* UI state */
     float preview_scale;
     Vector2 preview_offset;
     bool show_advanced;
+    bool show_popup;        /* Show completion popup */
     bool dragging_preview;
+    int scroll_offset;      /* For file list scrolling */
 
     /* Drag and drop */
     bool waiting_for_drop;
@@ -62,12 +87,18 @@ void ui_cleanup(UIContext *ctx);
 void ui_update(UIContext *ctx);
 
 /* Handle file drop */
-void ui_handle_drop(UIContext *ctx, const char *filepath);
+void ui_handle_drop(UIContext *ctx, const char **filepaths, int count);
+
+/* Add files to the list */
+void ui_add_files(UIContext *ctx, const char **filepaths, int count);
 
 /* Load image for preview */
-bool ui_load_image(UIContext *ctx, const char *filepath);
+bool ui_load_preview(UIContext *ctx, int file_index);
 
-/* Start conversion */
+/* Start conversion of all files */
 void ui_start_conversion(UIContext *ctx);
+
+/* Clear all files */
+void ui_clear_files(UIContext *ctx);
 
 #endif /* UI_H */
