@@ -81,7 +81,8 @@ void ui_clear_files(UIContext *ctx) {
     ctx->current_file = -1;
     ctx->converted_count = 0;
     ctx->failed_count = 0;
-    ctx->total_saved_bytes = 0;
+    ctx->total_input_size = 0;
+    ctx->total_output_size = 0;
     ctx->state = STATE_IDLE;
     strcpy(ctx->status_message, "Drop images or click 'Add Files' to start");
 }
@@ -231,10 +232,12 @@ void ui_start_conversion(UIContext *ctx) {
     ctx->state = STATE_CONVERTING;
     ctx->converted_count = 0;
     ctx->failed_count = 0;
-    ctx->total_saved_bytes = 0;
+    ctx->total_input_size = 0;
+    ctx->total_output_size = 0;
 
     for (int i = 0; i < ctx->file_count; i++) {
         FileEntry *entry = &ctx->files[i];
+        entry->output_size = 0;
 
         snprintf(ctx->status_message, sizeof(ctx->status_message),
                 "Converting %d/%d: %s",
@@ -254,8 +257,10 @@ void ui_start_conversion(UIContext *ctx) {
 
         if (result.success) {
             entry->converted = true;
+            entry->output_size = result.output_size;
             ctx->converted_count++;
-            ctx->total_saved_bytes += entry->file_size - result.output_size;
+            ctx->total_input_size += entry->file_size;
+            ctx->total_output_size += result.output_size;
         } else {
             entry->failed = true;
             ctx->failed_count++;
@@ -642,14 +647,41 @@ static void draw_sidebar(UIContext *ctx) {
     }
 
     /* Spacer to push convert button to bottom */
-    y = ctx->window_height - status_height - 70;
+    y = ctx->window_height - status_height - 95;
 
-    /* File count and estimated savings */
+    /* Estimate section */
     if (ctx->file_count > 0) {
-        char info_text[128];
+        /* Calculate total estimate */
+        size_t total_input = 0;
+        size_t total_estimate = 0;
+        for (int i = 0; i < ctx->file_count; i++) {
+            total_input += ctx->files[i].file_size;
+            /* Estimate based on image dimensions */
+            if (ctx->has_preview && i == ctx->current_file) {
+                total_estimate += converter_estimate_size(&ctx->image, &ctx->params);
+            } else {
+                /* Rough estimate: assume similar compression ratio */
+                float ratio = 0.1f + (ctx->params.quality / 100.0f) * 0.15f;
+                if (ctx->params.lossless) ratio = 0.5f;
+                total_estimate += (size_t)(ctx->files[i].file_size * ratio);
+            }
+        }
+
+        /* Show input size -> estimated output */
+        char input_str[32], est_str[32];
+        snprintf(input_str, sizeof(input_str), "%s", format_size(total_input));
+        snprintf(est_str, sizeof(est_str), "%s", format_size(total_estimate));
+
+        char estimate_text[128];
+        snprintf(estimate_text, sizeof(estimate_text), "Est: %s -> ~%s", input_str, est_str);
+        DrawText(estimate_text, x, y, 14, COLOR_TEXT_DIM);
+        y += 20;
+
+        /* File count */
+        char info_text[64];
         snprintf(info_text, sizeof(info_text), "%d file%s selected",
                 ctx->file_count, ctx->file_count > 1 ? "s" : "");
-        DrawText(info_text, x, y, 14, COLOR_TEXT_DIM);
+        DrawText(info_text, x, y, 12, COLOR_TEXT_DIM);
     }
     y += 25;
 
@@ -698,14 +730,25 @@ static void draw_popup(UIContext *ctx) {
     snprintf(results, sizeof(results), "%d of %d files converted successfully",
             ctx->converted_count, ctx->file_count);
     int results_w = MeasureText(results, 16);
-    DrawText(results, popup_x + (popup_w - results_w) / 2, popup_y + 70, 16, COLOR_TEXT);
+    DrawText(results, popup_x + (popup_w - results_w) / 2, popup_y + 60, 16, COLOR_TEXT);
 
-    /* Savings */
-    if (ctx->total_saved_bytes > 0) {
-        char savings[128];
-        snprintf(savings, sizeof(savings), "Total space saved: %s", format_size(ctx->total_saved_bytes));
-        int savings_w = MeasureText(savings, 14);
-        DrawText(savings, popup_x + (popup_w - savings_w) / 2, popup_y + 100, 14, COLOR_TEXT_DIM);
+    /* Size info */
+    if (ctx->total_output_size > 0) {
+        char input_str[32], output_str[32], size_info[128];
+        snprintf(input_str, sizeof(input_str), "%s", format_size(ctx->total_input_size));
+        snprintf(output_str, sizeof(output_str), "%s", format_size(ctx->total_output_size));
+        snprintf(size_info, sizeof(size_info), "%s  ->  %s", input_str, output_str);
+        int size_w = MeasureText(size_info, 16);
+        DrawText(size_info, popup_x + (popup_w - size_w) / 2, popup_y + 90, 16, COLOR_TEXT);
+
+        /* Savings percentage */
+        if (ctx->total_input_size > ctx->total_output_size) {
+            int percent_saved = (int)(100.0 * (ctx->total_input_size - ctx->total_output_size) / ctx->total_input_size);
+            char savings[64];
+            snprintf(savings, sizeof(savings), "Saved %d%% space", percent_saved);
+            int savings_w = MeasureText(savings, 14);
+            DrawText(savings, popup_x + (popup_w - savings_w) / 2, popup_y + 115, 14, COLOR_SUCCESS);
+        }
     }
 
     /* Failed count */
@@ -714,7 +757,7 @@ static void draw_popup(UIContext *ctx) {
         snprintf(failed, sizeof(failed), "%d file%s failed",
                 ctx->failed_count, ctx->failed_count > 1 ? "s" : "");
         int failed_w = MeasureText(failed, 14);
-        DrawText(failed, popup_x + (popup_w - failed_w) / 2, popup_y + 120, 14, COLOR_ERROR);
+        DrawText(failed, popup_x + (popup_w - failed_w) / 2, popup_y + 140, 14, COLOR_ERROR);
     }
 
     /* OK button */

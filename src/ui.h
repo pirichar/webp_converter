@@ -27,6 +27,7 @@ typedef struct {
     char output_path[512];
     char filename[256];
     size_t file_size;
+    size_t output_size;
     bool converted;
     bool failed;
 } FileEntry;
@@ -63,7 +64,8 @@ typedef struct {
     ConversionResult last_result;
     int converted_count;
     int failed_count;
-    size_t total_saved_bytes;
+    size_t total_input_size;
+    size_t total_output_size;
 
     /* UI state */
     float preview_scale;
