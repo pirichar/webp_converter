@@ -816,6 +816,32 @@ static void draw_popup(UIContext *ctx) {
     GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
 }
 
+/* PIR logo pixel grid (24x12) */
+static const unsigned char LOGO_PIXELS[12][24] = {
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,1,1,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0},
+    {0,1,1,0,1,1,0,0,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0},
+    {0,1,1,0,0,1,1,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,0},
+    {0,1,1,0,0,1,1,0,1,1,0,0,0,1,1,0,0,1,1,0,0,0,0,0},
+    {0,1,1,0,1,1,0,0,1,1,0,0,0,1,1,1,1,1,0,0,0,0,0,0},
+    {0,0,1,1,1,0,0,0,1,1,0,0,0,1,1,0,1,1,0,0,0,0,0,0},
+    {0,1,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,1,1,0,0,0,0,0},
+    {0,1,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,0},
+    {0,1,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,1,1,0,0,0},
+    {0,1,1,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,0,0,1,1,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+};
+
+static void draw_pir_logo(int x, int y, int scale, Color color) {
+    for (int row = 0; row < 12; row++) {
+        for (int col = 0; col < 24; col++) {
+            if (LOGO_PIXELS[row][col]) {
+                DrawRectangle(x + col * scale, y + row * scale, scale, scale, color);
+            }
+        }
+    }
+}
+
 static void draw_status_bar(UIContext *ctx) {
     int status_height = 40;
     Rectangle status_bar = {
@@ -836,6 +862,15 @@ static void draw_status_bar(UIContext *ctx) {
 
     DrawRectangleRec(status_bar, bar_color);
     DrawText(ctx->status_message, 15, status_bar.y + 12, 16, text_color);
+
+    /* Draw PIR logo in bottom right */
+    Color logo_color = CLITERAL(Color){ 78, 204, 163, 255 }; /* #4ecca3 teal */
+    int logo_scale = 2;
+    int logo_width = 24 * logo_scale;
+    int logo_height = 12 * logo_scale;
+    draw_pir_logo(ctx->window_width - logo_width - 15,
+                  status_bar.y + (status_height - logo_height) / 2,
+                  logo_scale, logo_color);
 }
 
 static const char* format_size(size_t bytes) {
