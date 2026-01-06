@@ -37,7 +37,7 @@ A fast, native macOS application for converting images to WebP format. Built wit
 3. **Right-click** on `WebPConverter.app` → **Open**
 4. Click **Open** in the security dialog
 
-> **Note:** Right-click → Open is required because the app isn't signed with an Apple Developer certificate ($99/year). This is safe - you only need to do it once.
+> **Note:** Right-click → Open is required because the app isn't signed with an Apple Developer certificate. This is safe - you only need to do it once.
 
 ---
 
@@ -49,12 +49,6 @@ A fast, native macOS application for converting images to WebP format. Built wit
 - Xcode Command Line Tools
 - [Homebrew](https://brew.sh)
 
-### Install Dependencies
-
-```bash
-brew install raylib webp
-```
-
 ### Build
 
 ```bash
@@ -62,13 +56,10 @@ brew install raylib webp
 git clone https://github.com/yourusername/webp_converter.git
 cd webp_converter
 
-# Build the executable
-make
+# Install dependencies (raylib, webp)
+make install-deps
 
-# Or build the .app bundle
-make app
-
-# Or build and run immediately
+# Build and run
 make run
 ```
 
