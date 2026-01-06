@@ -3,6 +3,7 @@
  */
 
 #include "ui.h"
+#include "strings.h"
 #include <stdio.h>
 #include <string.h>
 #include <libgen.h>
@@ -53,7 +54,7 @@ void ui_init(UIContext *ctx) {
     ctx->current_file = -1;
 
     presets_apply(PRESET_MEDIUM, &ctx->params);
-    strcpy(ctx->status_message, "Drop images or click 'Add Files' to start");
+    strncpy(ctx->status_message, str(STR_DROP_OR_ADD), sizeof(ctx->status_message) - 1);
 
     /* Configure raygui style */
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
@@ -84,13 +85,13 @@ void ui_clear_files(UIContext *ctx) {
     ctx->total_input_size = 0;
     ctx->total_output_size = 0;
     ctx->state = STATE_IDLE;
-    strcpy(ctx->status_message, "Drop images or click 'Add Files' to start");
+    strncpy(ctx->status_message, str(STR_DROP_OR_ADD), sizeof(ctx->status_message) - 1);
 }
 
 static void open_file_dialog(UIContext *ctx) {
     const char *filters[] = { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif" };
     const char *result = tinyfd_openFileDialog(
-        "Select Images",
+        str(STR_SELECT_IMAGES),
         "",
         5,
         filters,
@@ -161,8 +162,7 @@ void ui_add_files(UIContext *ctx, const char **filepaths, int count) {
     if (ctx->file_count > 0) {
         ctx->state = STATE_LOADED;
         snprintf(ctx->status_message, sizeof(ctx->status_message),
-                "%d file%s ready to convert",
-                ctx->file_count, ctx->file_count > 1 ? "s" : "");
+                str(STR_READY_TO_CONVERT), ctx->file_count);
     }
 }
 
@@ -240,8 +240,7 @@ void ui_start_conversion(UIContext *ctx) {
         entry->output_size = 0;
 
         snprintf(ctx->status_message, sizeof(ctx->status_message),
-                "Converting %d/%d: %s",
-                i + 1, ctx->file_count, entry->filename);
+                str(STR_CONVERTING), i + 1, ctx->file_count, entry->filename);
 
         /* Load image */
         ImageData img;
@@ -272,8 +271,7 @@ void ui_start_conversion(UIContext *ctx) {
     ctx->show_popup = true;
 
     snprintf(ctx->status_message, sizeof(ctx->status_message),
-            "Done! %d converted, %d failed",
-            ctx->converted_count, ctx->failed_count);
+            str(STR_DONE), ctx->converted_count, ctx->failed_count);
 }
 
 void ui_handle_drop(UIContext *ctx, const char **filepaths, int count) {
@@ -334,12 +332,12 @@ static void draw_file_list(UIContext *ctx) {
     DrawRectangleLinesEx(panel, 1, COLOR_BACKGROUND);
 
     /* Title */
-    DrawText("FILES", 10, 8, 12, COLOR_TEXT_DIM);
+    DrawText(str(STR_FILES), 10, 8, 12, COLOR_TEXT_DIM);
 
     /* File count */
     char count_text[32];
-    snprintf(count_text, sizeof(count_text), "%d file%s",
-            ctx->file_count, ctx->file_count != 1 ? "s" : "");
+    snprintf(count_text, sizeof(count_text), "%d %s%s",
+            ctx->file_count, str(STR_FILE), ctx->file_count != 1 ? "s" : "");
     DrawText(count_text, panel.width - 80, 8, 12, COLOR_TEXT_DIM);
 
     /* File list */
@@ -440,14 +438,14 @@ static void draw_preview_panel(UIContext *ctx) {
         DrawText(dims, panel.x + 10, panel.y + panel.height - 25, 14, COLOR_TEXT_DIM);
     } else {
         /* Drop zone */
-        const char *drop_text = "Drop images here";
+        const char *drop_text = str(STR_DROP_IMAGES);
         int text_width = MeasureText(drop_text, 24);
         DrawText(drop_text,
                 panel.x + (panel.width - text_width) / 2,
                 panel.y + panel.height / 2 - 12,
                 24, COLOR_TEXT_DIM);
 
-        const char *formats = "PNG, JPEG, BMP, GIF";
+        const char *formats = str(STR_SUPPORTED_FORMATS);
         int fmt_width = MeasureText(formats, 16);
         DrawText(formats,
                 panel.x + (panel.width - fmt_width) / 2,
@@ -471,17 +469,33 @@ static void draw_sidebar(UIContext *ctx) {
     int y = PANEL_PADDING;
     int w = sidebar_width - PANEL_PADDING * 2;
 
+    /* Language switcher */
+    Language current_lang = strings_get_language();
+    for (int i = 0; i < LANG_COUNT; i++) {
+        bool selected = (current_lang == (Language)i);
+        if (selected) {
+            GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(COLOR_ACCENT));
+        } else {
+            GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
+        }
+        if (GuiButton((Rectangle){ x + w - 70 + i * 35, y, 30, 25 }, strings_get_language_name(i))) {
+            strings_set_language(i);
+        }
+    }
+    GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
+    y += 35;
+
     /* Add Files / Clear buttons */
-    if (GuiButton((Rectangle){ x, y, w/2 - 5, 35 }, "Add Files...")) {
+    if (GuiButton((Rectangle){ x, y, w/2 - 5, 35 }, str(STR_ADD_FILES))) {
         open_file_dialog(ctx);
     }
-    if (GuiButton((Rectangle){ x + w/2 + 5, y, w/2 - 5, 35 }, "Clear All")) {
+    if (GuiButton((Rectangle){ x + w/2 + 5, y, w/2 - 5, 35 }, str(STR_CLEAR_ALL))) {
         ui_clear_files(ctx);
     }
     y += 45;
 
     /* Output path info */
-    DrawText("OUTPUT FOLDER", x, y, 12, COLOR_TEXT_DIM);
+    DrawText(str(STR_OUTPUT_FOLDER), x, y, 12, COLOR_TEXT_DIM);
     y += 20;
 
     /* Toggle: same folder or custom - draw custom checkbox */
@@ -501,7 +515,7 @@ static void draw_sidebar(UIContext *ctx) {
     }
 
     /* Label */
-    DrawText("Same folder as source", x + 28, y + 3, 14, COLOR_TEXT);
+    DrawText(str(STR_SAME_FOLDER), x + 28, y + 3, 14, COLOR_TEXT);
 
     /* Click detection */
     if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){ x, y, 200, 20 }) &&
@@ -512,7 +526,7 @@ static void draw_sidebar(UIContext *ctx) {
 
     /* Show current output folder or change button */
     if (!ctx->use_same_dir) {
-        if (GuiButton((Rectangle){ x, y, w, 28 }, ctx->output_dir[0] ? "Change Folder..." : "Select Folder...")) {
+        if (GuiButton((Rectangle){ x, y, w, 28 }, ctx->output_dir[0] ? str(STR_CHANGE_FOLDER) : str(STR_SELECT_FOLDER))) {
             const char *folder = tinyfd_selectFolderDialog("Select Output Folder", "");
             if (folder) {
                 strncpy(ctx->output_dir, folder, sizeof(ctx->output_dir) - 1);
@@ -546,12 +560,12 @@ static void draw_sidebar(UIContext *ctx) {
     y += 15;
 
     /* Presets section */
-    DrawText("PRESETS", x, y, 12, COLOR_TEXT_DIM);
+    DrawText(str(STR_PRESETS), x, y, 12, COLOR_TEXT_DIM);
     y += 20;
 
     /* Quality presets row */
     int btn_w = (w - 10) / 2;
-    const char *preset_names[] = { "Low", "Medium", "High", "Lossless" };
+    const char *preset_names[] = { str(STR_LOW), str(STR_MEDIUM), str(STR_HIGH), str(STR_LOSSLESS) };
     for (int i = 0; i < 4; i++) {
         int bx = x + (i % 2) * (btn_w + 10);
         int by = y + (i / 2) * 35;
@@ -571,7 +585,7 @@ static void draw_sidebar(UIContext *ctx) {
     y += 80;
 
     /* Use-case presets */
-    const char *use_case_names[] = { "Web", "Photo", "Thumb" };
+    const char *use_case_names[] = { str(STR_WEB), str(STR_PHOTO), str(STR_THUMB) };
     for (int i = 0; i < 3; i++) {
         int bx = x + i * (w / 3 + 3);
         int bw = w / 3 - 5;
@@ -595,13 +609,13 @@ static void draw_sidebar(UIContext *ctx) {
     y += 10;
 
     /* Settings section */
-    DrawText("SETTINGS", x, y, 12, COLOR_TEXT_DIM);
+    DrawText(str(STR_SETTINGS), x, y, 12, COLOR_TEXT_DIM);
     y += 25;
 
     GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));
 
     /* Quality slider */
-    DrawText("Quality", x, y, 14, COLOR_TEXT);
+    DrawText(str(STR_QUALITY), x, y, 14, COLOR_TEXT);
     char quality_text[16];
     snprintf(quality_text, sizeof(quality_text), "%.0f", ctx->params.quality);
     DrawText(quality_text, x + w - 30, y, 14, COLOR_TEXT);
@@ -610,7 +624,7 @@ static void draw_sidebar(UIContext *ctx) {
     y += 35;
 
     /* Method slider */
-    DrawText("Compression effort", x, y, 14, COLOR_TEXT);
+    DrawText(str(STR_COMPRESSION_EFFORT), x, y, 14, COLOR_TEXT);
     char method_text[16];
     snprintf(method_text, sizeof(method_text), "%d", ctx->params.method);
     DrawText(method_text, x + w - 20, y, 14, COLOR_TEXT);
@@ -632,7 +646,7 @@ static void draw_sidebar(UIContext *ctx) {
             DrawLine(x + 4, y + 11, x + 8, y + 16, WHITE);
             DrawLine(x + 8, y + 16, x + 16, y + 6, WHITE);
         }
-        DrawText("Lossless compression", x + 28, y + 3, 14, COLOR_TEXT);
+        DrawText(str(STR_LOSSLESS_COMPRESSION), x + 28, y + 3, 14, COLOR_TEXT);
         if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){ x, y, 200, 20 }) &&
             IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             ctx->params.lossless = !ctx->params.lossless;
@@ -652,7 +666,7 @@ static void draw_sidebar(UIContext *ctx) {
             DrawLine(x + 4, y + 11, x + 8, y + 16, WHITE);
             DrawLine(x + 8, y + 16, x + 16, y + 6, WHITE);
         }
-        DrawText("Show advanced options", x + 28, y + 3, 14, COLOR_TEXT);
+        DrawText(str(STR_SHOW_ADVANCED), x + 28, y + 3, 14, COLOR_TEXT);
         if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){ x, y, 200, 20 }) &&
             IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             ctx->show_advanced = !ctx->show_advanced;
@@ -662,13 +676,13 @@ static void draw_sidebar(UIContext *ctx) {
 
     if (ctx->show_advanced) {
         /* Alpha quality */
-        DrawText("Alpha quality", x, y, 14, COLOR_TEXT);
+        DrawText(str(STR_ALPHA_QUALITY), x, y, 14, COLOR_TEXT);
         y += 20;
         GuiSlider((Rectangle){ x, y, w, 20 }, NULL, NULL, &ctx->params.alpha_quality, 0, 100);
         y += 30;
 
         /* Filter strength */
-        DrawText("Filter strength", x, y, 14, COLOR_TEXT);
+        DrawText(str(STR_FILTER_STRENGTH), x, y, 14, COLOR_TEXT);
         y += 20;
         float filter_f = (float)ctx->params.filter_strength;
         GuiSlider((Rectangle){ x, y, w, 20 }, NULL, NULL, &filter_f, 0, 100);
@@ -705,14 +719,17 @@ static void draw_sidebar(UIContext *ctx) {
         snprintf(est_str, sizeof(est_str), "%s", format_size(total_estimate));
 
         char estimate_text[128];
-        snprintf(estimate_text, sizeof(estimate_text), "Est: %s -> ~%s", input_str, est_str);
+        snprintf(estimate_text, sizeof(estimate_text), str(STR_ESTIMATE), input_str, est_str);
         DrawText(estimate_text, x, y, 14, COLOR_TEXT_DIM);
         y += 20;
 
         /* File count */
         char info_text[64];
-        snprintf(info_text, sizeof(info_text), "%d file%s selected",
-                ctx->file_count, ctx->file_count > 1 ? "s" : "");
+        if (ctx->file_count == 1) {
+            snprintf(info_text, sizeof(info_text), "%s", str(STR_FILE_SELECTED));
+        } else {
+            snprintf(info_text, sizeof(info_text), str(STR_FILES_SELECTED), ctx->file_count);
+        }
         DrawText(info_text, x, y, 12, COLOR_TEXT_DIM);
     }
     y += 25;
@@ -727,9 +744,9 @@ static void draw_sidebar(UIContext *ctx) {
 
     char convert_text[64];
     if (ctx->file_count > 1) {
-        snprintf(convert_text, sizeof(convert_text), "Convert %d Files to WebP", ctx->file_count);
+        snprintf(convert_text, sizeof(convert_text), str(STR_CONVERT_FILES), ctx->file_count);
     } else {
-        strcpy(convert_text, "Convert to WebP");
+        strncpy(convert_text, str(STR_CONVERT_TO_WEBP), sizeof(convert_text) - 1);
     }
 
     if (GuiButton((Rectangle){ x, y, w, 40 }, convert_text) && can_convert) {
@@ -753,13 +770,13 @@ static void draw_popup(UIContext *ctx) {
     DrawRectangleLinesEx((Rectangle){ popup_x, popup_y, popup_w, popup_h }, 2, COLOR_ACCENT);
 
     /* Title */
-    const char *title = "Conversion Complete!";
+    const char *title = str(STR_CONVERSION_COMPLETE);
     int title_w = MeasureText(title, 24);
     DrawText(title, popup_x + (popup_w - title_w) / 2, popup_y + 25, 24, COLOR_SUCCESS);
 
     /* Results */
     char results[128];
-    snprintf(results, sizeof(results), "%d of %d files converted successfully",
+    snprintf(results, sizeof(results), str(STR_FILES_CONVERTED),
             ctx->converted_count, ctx->file_count);
     int results_w = MeasureText(results, 16);
     DrawText(results, popup_x + (popup_w - results_w) / 2, popup_y + 60, 16, COLOR_TEXT);
@@ -777,7 +794,7 @@ static void draw_popup(UIContext *ctx) {
         if (ctx->total_input_size > ctx->total_output_size) {
             int percent_saved = (int)(100.0 * (ctx->total_input_size - ctx->total_output_size) / ctx->total_input_size);
             char savings[64];
-            snprintf(savings, sizeof(savings), "Saved %d%% space", percent_saved);
+            snprintf(savings, sizeof(savings), str(STR_SAVED_SPACE), percent_saved);
             int savings_w = MeasureText(savings, 14);
             DrawText(savings, popup_x + (popup_w - savings_w) / 2, popup_y + 115, 14, COLOR_SUCCESS);
         }
@@ -786,15 +803,14 @@ static void draw_popup(UIContext *ctx) {
     /* Failed count */
     if (ctx->failed_count > 0) {
         char failed[64];
-        snprintf(failed, sizeof(failed), "%d file%s failed",
-                ctx->failed_count, ctx->failed_count > 1 ? "s" : "");
+        snprintf(failed, sizeof(failed), str(STR_FILES_FAILED), ctx->failed_count);
         int failed_w = MeasureText(failed, 14);
         DrawText(failed, popup_x + (popup_w - failed_w) / 2, popup_y + 140, 14, COLOR_ERROR);
     }
 
     /* OK button */
     GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(COLOR_ACCENT));
-    if (GuiButton((Rectangle){ popup_x + popup_w/2 - 60, popup_y + popup_h - 50, 120, 35 }, "OK")) {
+    if (GuiButton((Rectangle){ popup_x + popup_w/2 - 60, popup_y + popup_h - 50, 120, 35 }, str(STR_OK))) {
         ctx->show_popup = false;
     }
     GuiSetStyle(BUTTON, BASE_COLOR_NORMAL, ColorToInt(CLITERAL(Color){ 70, 70, 75, 255 }));

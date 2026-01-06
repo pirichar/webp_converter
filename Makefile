@@ -16,6 +16,7 @@ APP_BUNDLE = $(APP_NAME).app
 SOURCES = $(SRC_DIR)/main.c \
           $(SRC_DIR)/converter.c \
           $(SRC_DIR)/presets.c \
+          $(SRC_DIR)/strings.c \
           $(SRC_DIR)/ui.c \
           $(LIB_DIR)/tinyfiledialogs.c
 
