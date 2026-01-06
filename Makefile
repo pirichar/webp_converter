@@ -61,18 +61,27 @@ app: $(EXECUTABLE)
 	# Also copy sharpyuv dependency of libwebp
 	@cp /opt/homebrew/opt/webp/lib/libsharpyuv.dylib $(APP_BUNDLE)/Contents/Frameworks/ 2>/dev/null || true
 
-	# Fix library paths in executable
-	@install_name_tool -change $(RAYLIB_DYLIB) @executable_path/../Frameworks/libraylib.dylib $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
-	@install_name_tool -change $(WEBP_DYLIB) @executable_path/../Frameworks/libwebp.dylib $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
-	@install_name_tool -change /opt/homebrew/opt/webp/lib/libsharpyuv.0.dylib @executable_path/../Frameworks/libsharpyuv.dylib $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) 2>/dev/null || true
+	# Make libraries writable for install_name_tool
+	@chmod +w $(APP_BUNDLE)/Contents/Frameworks/*.dylib
+	@chmod +w $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
 
-	# Fix library paths in libwebp
+	# Fix library paths in executable (handle versioned library names)
+	@install_name_tool -change $(RAYLIB_DYLIB) @executable_path/../Frameworks/libraylib.dylib $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) 2>/dev/null || true
+	@install_name_tool -change /opt/homebrew/opt/raylib/lib/libraylib.550.dylib @executable_path/../Frameworks/libraylib.dylib $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) 2>/dev/null || true
+	@install_name_tool -change $(WEBP_DYLIB) @executable_path/../Frameworks/libwebp.dylib $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) 2>/dev/null || true
+	@install_name_tool -change /opt/homebrew/opt/webp/lib/libwebp.7.dylib @executable_path/../Frameworks/libwebp.dylib $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) 2>/dev/null || true
+
+	# Fix library paths in libwebp (references to libsharpyuv)
 	@install_name_tool -change /opt/homebrew/opt/webp/lib/libsharpyuv.0.dylib @executable_path/../Frameworks/libsharpyuv.dylib $(APP_BUNDLE)/Contents/Frameworks/libwebp.dylib 2>/dev/null || true
+	@install_name_tool -change @rpath/libsharpyuv.0.dylib @executable_path/../Frameworks/libsharpyuv.dylib $(APP_BUNDLE)/Contents/Frameworks/libwebp.dylib 2>/dev/null || true
 
 	# Fix library IDs
 	@install_name_tool -id @executable_path/../Frameworks/libraylib.dylib $(APP_BUNDLE)/Contents/Frameworks/libraylib.dylib
 	@install_name_tool -id @executable_path/../Frameworks/libwebp.dylib $(APP_BUNDLE)/Contents/Frameworks/libwebp.dylib
 	@install_name_tool -id @executable_path/../Frameworks/libsharpyuv.dylib $(APP_BUNDLE)/Contents/Frameworks/libsharpyuv.dylib 2>/dev/null || true
+
+	# Ad-hoc sign the app
+	@codesign --force --deep --sign - $(APP_BUNDLE)
 
 	# Create Info.plist
 	@echo '<?xml version="1.0" encoding="UTF-8"?>' > $(APP_BUNDLE)/Contents/Info.plist

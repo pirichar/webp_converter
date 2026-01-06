@@ -11,6 +11,8 @@
 
 A fast, native macOS application for converting images to WebP format. Built with C, raylib, and libwebp.
 
+![WebP Converter Screenshot](assets/screenshot.png)
+
 ## Features
 
 - Convert PNG, JPEG, BMP, and GIF images to WebP
@@ -26,7 +28,20 @@ A fast, native macOS application for converting images to WebP format. Built wit
 
 ---
 
-## Building from Source
+## For End Users (Download)
+
+**No installation required!** Just download and run.
+
+1. Download `WebPConverter-app.zip` from Releases
+2. Extract the ZIP
+3. **Right-click** on `WebPConverter.app` → **Open**
+4. Click **Open** in the security dialog
+
+> **Note:** Right-click → Open is required because the app isn't signed with an Apple Developer certificate ($99/year). This is safe - you only need to do it once.
+
+---
+
+## For Developers (Building from Source)
 
 ### Prerequisites
 
@@ -68,10 +83,27 @@ make run
 | `make clean` | Remove object files |
 | `make fclean` | Remove all build artifacts |
 | `make re` | Clean and rebuild |
+| `make install-deps` | Install dependencies via Homebrew |
 
-### Distribution
+### Development Workflow
 
-To create a signed and notarized DMG for distribution:
+After making code changes:
+
+```bash
+# 1. Test your changes locally
+make run
+
+# 2. Create a ZIP for distribution
+make app
+zip -r WebPConverter-app.zip WebPConverter.app
+
+# 3. Send the ZIP to users
+#    Tell them: Extract → Right-click app → Open → Click "Open"
+```
+
+### Signed Distribution (Optional)
+
+To create a signed and notarized DMG (requires Apple Developer Program - $99/year):
 
 ```bash
 # Sign the app (requires Apple Developer ID)
