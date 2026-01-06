@@ -32,12 +32,12 @@ A fast, native macOS application for converting images to WebP format. Built wit
 
 **No installation required!** Just download and run.
 
-1. Download `WebPConverter-app.zip` from Releases
+1. Download the latest ZIP from the [`releases/`](releases/) folder
 2. Extract the ZIP
 3. **Right-click** on `WebPConverter.app` → **Open**
 4. Click **Open** in the security dialog
 
-> **Note:** Right-click → Open is required because the app isn't signed with an Apple Developer certificate. This is safe - you only need to do it once.
+> **Note:** Right-click → Open is required because the app isn't signed with an Apple Developer certificate yet. This is safe - you only need to do it once.
 
 ---
 

@@ -12,7 +12,7 @@
 int main(void) {
     /* Initialize window */
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
-    InitWindow(1100, 750, "WebP Converter");
+    InitWindow(1100, 750, "PlR WebP Converter");
     SetTargetFPS(60);
     SetWindowMinSize(900, 600);
 
